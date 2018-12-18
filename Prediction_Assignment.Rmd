@@ -1,0 +1,219 @@
+##Practical Machine Learning Project : Prediction Assignment Writeup
+
+
+####I. Overview
+
+This report describes the steps to develop the prediction for the Machine Learning Project of Coursera's Practical Machine Learning module as part of Data Science Specialization course. The objective of this project is to predict the manner in which six (6) participants performed some exercises which is tagged as "classe" variable in the training set. The machine learning algorithm is applied to the 20 test cases available in the test data and the predictions are submitted in Course Project Prediction Quiz for automated grading.
+
+####II. Background
+
+Using devices such as Jawbone Up, Nike FuelBand, and Fitbit it is now possible to collect a large amount of data about personal activity relatively inexpensively. These type of devices are part of the quantified self movement - a group of enthusiasts who take measurements about themselves regularly to improve their health, to find patterns in their behavior, or because they are tech geeks. One thing that people regularly do is quantify how much of a particular activity they do, but they rarely quantify how well they do it. In this project, the goal will be to use data from accelerometers on the belt, forearm, arm, and dumbell of 6 participants. They were asked to perform barbell lifts correctly and incorrectly in 5 different ways. 
+
+More information is available from the website here: http://groupware.les.inf.puc-rio.br/har (see the section on the Weight Lifting Exercise Dataset).
+
+
+###III. Data Loading and Exploratory Analysis
+
+####A. Dataset Overview
+
+The training data for this project are available here:
+
+https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv
+
+The test data are available here:
+
+https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv
+
+The data for this project come from http://groupware.les.inf.puc-rio.br/har.
+
+Special recognition to the below mentioned authors for being very generous in allowing their data to be used for this kind of project.
+
+Ugulino, W.; Cardador, D.; Vega, K.; Velloso, E.; Milidiu, R.; Fuks, H. Wearable Computing: Accelerometers' Data Classification of Body Postures and Movements. Proceedings of 21st Brazilian Symposium on Artificial Intelligence. Advances in Artificial Intelligence - SBIA 2012. In: Lecture Notes in Computer Science. , pp. 52-61. Curitiba, PR: Springer Berlin / Heidelberg, 2012.
+http://groupware.les.inf.puc-rio.br/public/papers/2012.Ugulino.WearableComputing.HAR.Classifier.RIBBON.pdf
+
+Velloso, E.; Bulling, A.; Gellersen, H.; Ugulino, W.; Fuks, H. Qualitative Activity Recognition of Weight Lifting Exercises. Proceedings of 4th International Conference in Cooperation with SIGCHI (Augmented Human '13) . Stuttgart, Germany: ACM SIGCHI, 2013.
+http://groupware.les.inf.puc-rio.br/public/papers/2013.Velloso.QAR-WLE.pdf
+
+
+####B. Library Set-up
+
+```{r}
+rm(list=ls())
+setwd("C:/Users/Hercules.Garcia/Desktop/R")
+library(knitr)
+library(caret)
+library(corrplot)
+library(e1071)
+library(gbm)
+library(rpart)
+library(rpart.plot)
+library(rattle)
+library(randomForest)
+set.seed(12345)
+```
+
+
+####C. Getting and Cleaning Data
+
+The dataset will be downloaded from the URL provided below. The training dataset is partitioned into two (2) to create a Training set (70% of training dataset) for the modeling process, and a Test set (remaining 30% of training dataset) for the validations. The testing dataset will be utilized for the prediction quiz results output.
+
+```{r}
+#URL for the download
+URLTrain <- "http://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv"
+URLTest  <- "http://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv"
+
+#Download the datasets
+training <- read.csv(url(URLTrain))
+testing  <- read.csv(url(URLTest))
+
+#Create partition of training dataset 
+inTrain  <- createDataPartition(training$classe, p=0.7, list=FALSE)
+TrainSet <- training[inTrain, ]
+TestSet  <- training[-inTrain, ]
+```
+
+```{r}
+str(TrainSet)
+```
+
+```{r}
+str(TestSet)
+```
+
+Both created datasets have 160 variables and have several NAs which can be removed by the following data cleansing.
+
+```{r}
+#Remove variables with Nearly Zero Variance
+NZV <- nearZeroVar(TrainSet)
+TrainSet <- TrainSet[, -NZV]
+TestSet  <- TestSet[, -NZV]
+dim(TrainSet)
+dim(TestSet)
+```
+
+```{r}
+#Remove variables that are mostly NA
+MostNA    <- sapply(TrainSet, function(x) mean(is.na(x))) > 0.95
+TrainSet <- TrainSet[, MostNA==FALSE]
+TestSet  <- TestSet[, MostNA==FALSE]
+dim(TrainSet)
+dim(TestSet)
+```
+
+
+```{r}
+#Remove identification only variables (columns 1 to 5)
+TrainSet <- TrainSet[, -(1:5)]
+TestSet  <- TestSet[, -(1:5)]
+dim(TrainSet)
+dim(TestSet)
+```
+
+
+The number of variables for the analysis has been reduced to 54 after data cleansing 
+
+####D. Analysis
+
+Perform correlation of variables prior building the model.
+
+```{r}
+correlationMatrix <- cor(TrainSet[, -54])
+corrplot(correlationMatrix, order = "FPC", method = "color", type = "lower", 
+         tl.cex = 0.5, tl.col = rgb(0, 0, 0))
+```
+
+The highly correlated variables are shown in dark colors in the above plot.
+
+###IV. Prediction Model Building
+
+Three (3) different methods will be used for the regression modelling of the Train dataset. The method with the highest accuracy when applied to the Test dataset will be used for the quiz predictions. 
+
+The following methods are: 
+1. Random Forests
+2. Decision Tree
+3. Generalized Boosted Model (GBM)
+
+Confusion Matrix is plotted for better visualization
+
+####A. Method: Random Forest
+
+```{r}
+#Model Fitting
+set.seed(12345)
+ctrlRandomForest <- trainControl(method="cv", number=3, verboseIter=FALSE)
+modelFitRandomForest <- train(classe ~ ., data=TrainSet, method="rf",
+                          trControl=ctrlRandomForest)
+modelFitRandomForest$finalModel
+```
+
+```{r}
+#Prediction on Test dataset
+predictRandomForest <- predict(modelFitRandomForest, newdata=TestSet)
+confMatRandomForest <- confusionMatrix(predictRandomForest, TestSet$classe)
+confMatRandomForest
+```
+
+```{r}
+#Confusion Matrix Plot
+plot(confMatRandomForest$table, col = confMatRandomForest$byClass, 
+     main = paste("Random Forest - Accuracy =",
+                  round(confMatRandomForest$overall['Accuracy'], 4)))
+```
+
+####B. Method: Decision Trees
+
+```{r}
+#Model fitting
+set.seed(12345)
+modelFitDecisionTree <- rpart(classe ~ ., data=TrainSet, method="class")
+fancyRpartPlot(modelFitDecisionTree)
+```
+
+```{r}
+#Prediction on Test dataset
+predictDecisionTree <- predict(modelFitDecisionTree, newdata=TestSet, type="class")
+confMatDecisionTree <- confusionMatrix(predictDecisionTree, TestSet$classe)
+confMatDecisionTree
+```
+
+```{r}
+#Confusion Matrix Plot
+plot(confMatDecisionTree$table, col = confMatDecisionTree$byClass, 
+     main = paste("Decision Tree - Accuracy =",
+                  round(confMatDecisionTree$overall['Accuracy'], 4)))
+```
+
+####C. Method: Generalized Boosted Model
+
+```{r}
+#Model fitting
+set.seed(12345)
+controlGBM <- trainControl(method = "repeatedcv", number = 5, repeats = 1)
+modelFitGBM  <- train(classe ~ ., data=TrainSet, method = "gbm",
+                    trControl = controlGBM, verbose = FALSE)
+modelFitGBM$finalModel
+```
+
+```{r}
+#Prediction on Test dataset
+predictGBM <- predict(modelFitGBM, newdata=TestSet)
+confMatGBM <- confusionMatrix(predictGBM, TestSet$classe)
+confMatGBM
+```
+
+```{r}
+#Confusion Matrix Plot
+plot(confMatGBM$table, col = confMatGBM$byClass, 
+     main = paste("GBM - Accuracy =", round(confMatGBM$overall['Accuracy'], 4)))
+```
+
+
+###V. Apply the Selected Model to the Test Data
+
+Random Forest model has the highest accuracy of the three (3) regression modeling methods. Hence, the Random Forest model will be applied to predict the 20 items quiz (testing dataset).
+
+```{r}
+predictTest <- predict(modelFitRandomForest, newdata=testing)
+predictTest
+```
+
